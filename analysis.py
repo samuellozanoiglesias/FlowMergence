@@ -283,8 +283,8 @@ def main():
             # one map over (by[0], by[1]) for every combination of the remaining columns
             for keys, sub in tab.groupby(by[2:]):
                 keys = keys if isinstance(keys, tuple) else (keys,)
-                tag = "_".join(f"{c}{v:g}" for c, v in zip(by[2:], keys))
-                label = ", ".join(f"{c}={v:g}" for c, v in zip(by[2:], keys))
+                tag = "_".join(f"{c}{plots.fmt_value(v)}" for c, v in zip(by[2:], keys))
+                label = ", ".join(f"{c}={plots.fmt_value(v)}" for c, v in zip(by[2:], keys))
                 for col in map_cols:
                     plots.plot_phase_diagram(sub, by[0], by[1], os.path.join(out, f"map_{col}_{tag}.png"),
                                              value=col, center=None, title=f"{col}  ({label})")

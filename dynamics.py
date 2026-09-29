@@ -15,8 +15,9 @@ Order of one step t
     4. Job completion: output; the agent leaves the lattice.
     5. Quitting (work with p_quit_work, coordination with p_quit_coord).
     6. Stimuli: composition -> s_j; signal rate -> s_C.
-    7. Recruitment of idle agents: each one "encounters" a random role and takes it
-       with probability T(s, θ) [B96]; workers try to enter the lattice.
+    7. Recruitment of idle agents: each one "encounters" one role (with probability ∝
+       stimulus by default, see Params.encounter) and takes it with probability
+       T(s, θ) [B96]; workers try to enter the lattice.
     8. Threshold reinforcement with the role each agent PERFORMED this step [T98].
     9. Coordinator coverage -> block probability for the next step.
 
@@ -200,8 +201,15 @@ class Simulation:
         n_fail, n_new_coord = 0, 0
         idle = xp.nonzero(st == IDLE)[0]
         if idle.size:
-            k = rs.randint(0, self.n_roles, size=int(idle.size))
             s_all = xp.concatenate([self.s, xp.asarray(self.s_coord, dtype=xp.float32).reshape(1)])
+            if p.encounter == "stimulus":
+                # encounter probability ∝ stimulus: silent roles are never encountered
+                w_enc = s_all[:self.n_roles].astype(xp.float64)
+                cdf = xp.cumsum(w_enc) / xp.maximum(w_enc.sum(), 1e-12)
+                u = rs.random_sample(int(idle.size))
+                k = xp.minimum(xp.searchsorted(cdf, u, side="right"), self.n_roles - 1)
+            else:
+                k = rs.randint(0, self.n_roles, size=int(idle.size))
             prob = mech.response_probability(s_all[k], self.theta[idle, k])
             eng = rs.random_sample(int(idle.size)) < prob
             cand, kc = idle[eng], k[eng]

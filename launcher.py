@@ -2,13 +2,10 @@
 launcher.py — Runs an experiment from config.py in parallel, with resumption.
 
 Examples
-    python launcher.py --list
-    python launcher.py --exp smoke --workers 8
-    python launcher.py --exp lambda_sweep --workers 190
-    python launcher.py --exp lambda_sweep --workers 190 --max-N 32768           # CPU
-    python launcher.py --exp large_N --backend cupy --workers 8                  # GPU
-    python launcher.py --exp lambda_sweep --set T_burn=8000 --dry-run
-    python launcher.py --exp smoke --root /some/other/place                      # different root
+    nohup python launcher.py --exp lambda_sweep --workers 20 > log_lambda_sweep.out 2>&1 &
+    nohup python launcher.py --exp lambda_sweep_nocoord --workers 20 > log_lambda_sweep_nocoord.out 2>&1 &
+    nohup python launcher.py --exp lambda_sweep --workers 20 --max-N 32768           # CPU
+    nohup python launcher.py --exp large_N --backend cupy --workers 8                  # GPU
 
 Output (see paths.py for the full layout):
     DATA_ROOT/experiments/<exp>/exp_<timestamp>/config.txt, manifest.json, results.jsonl, errors.jsonl

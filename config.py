@@ -9,7 +9,7 @@ config.py — Experiment definitions (sweeps). Each experiment has:
 
 Recommended order:
     smoke -> calibration_fine -> calibration_robustness -> density_scan (+ _nocoord,
-    _spillover) -> control_density -> lambda_sweep (densities chosen from density_scan)
+    _spillover) -> encounter_check -> control_density -> lambda_sweep (+ _nocoord)
     -> lambda_sweep_nocoord -> phase_diagram -> area_exponent -> ossification
     -> useless_bureaucracy -> learning_ablation -> large_N (GPU)
 """
@@ -25,6 +25,11 @@ from params import Params
 N_GRID = [2 ** k for k in range(6, 16)]         # 64 … 32768  (2.7 decades)
 N_COARSE = [2 ** k for k in range(6, 16, 2)]    # 64, 256, 1024, 4096, 16384
 LAMBDAS = [round(0.1 * i, 3) for i in range(11)]
+N_WIDE = [2 ** k for k in range(6, 18)]         # 64 … 131072 (3.3 decades)
+# Density path chosen from density_scan: with a = 2/3 and rho0 = 0.0125, density goes
+# 0.05 (N=64) -> 0.40 (N=32768) -> 0.63 (N=131072): it crosses the whole hump of
+# y(ρ), from the spillover-dominated regime (ε > 0) to beyond the BML jam (ε < 0).
+DENSITY_PATH = dict(area_exponent=2 / 3, rho0=0.0125)
 
 EXPERIMENTS = {
     "smoke": dict(
@@ -94,16 +99,33 @@ EXPERIMENTS = {
         seeds=6,
     ),
     "lambda_sweep": dict(
-        description="MAIN: β(λ) and γ(λ) with growing density (a=0.85).",
+        description="MAIN: β(λ), local β(N) and γ(λ). Density grows from 0.05 to 0.63 across N "
+                    "(a=2/3, rho0=0.0125), crossing the hump found in density_scan. "
+                    "N ≥ 65536 is slow: split with --max-N / --min-N if needed.",
+        base=dict(**DENSITY_PATH),
+        grid=dict(N=N_WIDE, exclusion=LAMBDAS),
+        seeds=8,
+    ),
+    "lambda_sweep_nocoord": dict(
+        description="Ablation: same as lambda_sweep but without the coordinator role "
+                    "(expect a jam collapse at large N for high λ).",
+        base=dict(**DENSITY_PATH, coordination=False),
+        grid=dict(N=N_WIDE, exclusion=LAMBDAS),
+        seeds=8,
+    ),
+    "lambda_sweep_old_path": dict(
+        description="(legacy) original main sweep with a=0.85, rho0=0.05: density 0.09–0.24 only.",
         base=dict(area_exponent=0.85),
         grid=dict(N=N_GRID, exclusion=LAMBDAS),
         seeds=8,
     ),
-    "lambda_sweep_nocoord": dict(
-        description="Ablation: same as lambda_sweep but without the coordinator role.",
-        base=dict(area_exponent=0.85, coordination=False),
-        grid=dict(N=N_GRID, exclusion=LAMBDAS),
-        seeds=8,
+    "encounter_check": dict(
+        description="Confirms the encounter fix: with 'stimulus', enabling coordination at λ=0 "
+                    "(where M=0) must no longer cost output; 'uniform' reproduces the artifact.",
+        base=dict(N=4096, area_exponent=1.0, exclusion=0.0),
+        grid=dict(rho0=[0.05, 0.2, 0.5], coordination=[True, False],
+                  encounter=["stimulus", "uniform"]),
+        seeds=4,
     ),
     "phase_diagram": dict(
         description="β on the (κ spillover, λ exclusion) plane: benefit versus cost.",

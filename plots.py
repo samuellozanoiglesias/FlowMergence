@@ -25,6 +25,18 @@ import numpy as np  # noqa: E402
 from matplotlib.colors import TwoSlopeNorm  # noqa: E402
 
 
+def fmt_value(v) -> str:
+    """Format a grouping value for labels/filenames: compact for numbers, plain for str/bool."""
+    if isinstance(v, (bool,)) or type(v).__name__ == "bool_":
+        return str(bool(v))
+    if isinstance(v, (int, float)) or hasattr(v, "dtype"):
+        try:
+            return f"{float(v):g}"
+        except (TypeError, ValueError):
+            pass
+    return str(v)
+
+
 def _groups(df, by):
     for keys, g in df.groupby(by):
         keys = keys if isinstance(keys, tuple) else (keys,)
@@ -99,8 +111,8 @@ def plot_phase_diagram(table, xcol, ycol, path, value="exponent", center=1.0, ti
     else:
         im = ax.imshow(vals, origin="lower", cmap="viridis", aspect="auto")
         default_title = value
-    ax.set_xticks(range(len(piv.columns)), [f"{v:g}" for v in piv.columns])
-    ax.set_yticks(range(len(piv.index)), [f"{v:g}" for v in piv.index])
+    ax.set_xticks(range(len(piv.columns)), [fmt_value(v) for v in piv.columns])
+    ax.set_yticks(range(len(piv.index)), [fmt_value(v) for v in piv.index])
     for i in range(vals.shape[0]):
         for j in range(vals.shape[1]):
             if np.isfinite(vals[i, j]):
@@ -121,7 +133,7 @@ def plot_density_response(resp, group, path):
     (a1, a2), (a3, a4) = axes
     for (keys, g), c in zip(groups, colors):
         keys = keys if isinstance(keys, tuple) else (keys,)
-        label = ", ".join(f"{k}={v:g}" for k, v in zip(group, keys)) or "all"
+        label = ", ".join(f"{k}={fmt_value(v)}" for k, v in zip(group, keys)) or "all"
         g = g.sort_values("density")
         a1.errorbar(g.density, g.y_per_capita, yerr=g.y_sd, fmt="o-", ms=3, color=c, label=label, capsize=2)
         a2.plot(g.density_mid, g.epsilon, "o-", ms=3, color=c, label=label)

@@ -136,6 +136,15 @@ class Params:
     """Exponential smoothing of the observed production composition."""
     p_quit_work: float = 0.0
     """[B96] p: per-step probability of abandoning an unfinished job (0 = never)."""
+    encounter: str = "stimulus"
+    """How an idle agent picks the ONE role it considers this step (it then accepts with
+    probability T(s, θ)).
+    'stimulus' (default): role k is encountered with probability ∝ s_k. A silent role
+       (s = 0, e.g. coordination when there is no congestion) is never encountered, so
+       its mere existence costs nothing. Closer to B96, where the stimulus sets "the
+       probability of being exposed" to a task.
+    'uniform': every role equally likely. Legacy behaviour: with coordination enabled
+       but unused, 1/(m+1) of all encounters are wasted (−6–15% output in density_scan)."""
 
     # ------------------------------------------------------------------ coordination (bureaucracy)
     coordination: bool = True
@@ -221,6 +230,8 @@ class Params:
             errs.append("coord_placement ∈ {congestion, random}")
         if self.coord_signal not in ("cross", "all"):
             errs.append("coord_signal ∈ {cross, all}")
+        if self.encounter not in ("stimulus", "uniform"):
+            errs.append("encounter ∈ {stimulus, uniform}")
         if self.backend not in ("numpy", "cupy"):
             errs.append("backend ∈ {numpy, cupy}")
         if self.T_measure < 1 or self.T_burn < 0:
