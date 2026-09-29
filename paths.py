@@ -55,6 +55,7 @@ ABBREV = {
     "coord_stimulus_gain": "gC", "coord_signal": "sig", "p_quit_coord": "pqc",
     "coord_placement": "place", "coord_relocate_prob": "reloc", "blocked_ema": "bema",
     "T_burn": "Tb", "T_measure": "Tm", "encounter": "enc",
+    "coord_mode": "cmode", "coord_fixed_frac": "Mfix", "centralization": "cen",
 }
 
 

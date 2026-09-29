@@ -134,6 +134,7 @@ def summarize(sim, acc: Accumulator) -> dict:
         "mean_nsame": mu.get("mean_nsame", 0.0),
         "covered_frac": mu.get("covered_frac", 0.0),
         "s_coord": mu.get("s_coord", 0.0),
+        "delivering_frac": mu.get("n_delivering", 0.0) / N,
         "steps_measured": acc.n,
     }
     out.update(division_of_labour(to_numpy(sim.time_budget), sim.m))

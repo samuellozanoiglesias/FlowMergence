@@ -12,7 +12,8 @@ Order of one step t
     1. BML movement (one direction per step if traffic_light).
     2. Coordinator bookkeeping: active if there was signal in its zone; relocation.
     3. Learning: practice + spillover; forgetting for everyone.
-    4. Job completion: output; the agent leaves the lattice.
+    4. Job completion: output; the agent leaves the lattice. With centralization c > 0,
+       a fraction c of jobs must first be delivered to the hub line (L//2).
     5. Quitting (work with p_quit_work, coordination with p_quit_coord).
     6. Stimuli: composition -> s_j; signal rate -> s_C.
     7. Recruitment of idle agents: each one "encounters" one role (with probability ∝
@@ -48,7 +49,9 @@ class Simulation:
         N, m, L = self.N, self.m, self.L
         self.COORD = m
         self.coordination = bool(p.coordination)
-        self.n_roles = m + 1 if self.coordination else m
+        self.fixed_coord = self.coordination and p.coord_mode == "fixed"
+        # in fixed mode coordination is not a recruitable role
+        self.n_roles = m + 1 if (self.coordination and not self.fixed_coord) else m
 
         # --- agents
         self.state = xp.full(N, IDLE, dtype=xp.int32)
@@ -82,6 +85,19 @@ class Simulation:
                        if self.coordination else None)
         self.block_grid = None          # None => uniform λ (no coordinators)
         self.covered_frac = 0.0
+
+        # --- centralization: which jobs must be delivered to the hub line
+        self.hub_job = xp.zeros(N, dtype=bool)
+        self.hub_line = L // 2
+
+        # --- fixed bureaucracy: permanent coordinators from t = 0
+        if self.fixed_coord:
+            M0 = int(round(p.coord_fixed_frac * N))
+            if M0 > 0:
+                idx = self.rs.permutation(N)[:M0]
+                self.state[idx] = self.COORD
+                self.pos_y[idx] = self.rs.randint(0, L, size=M0).astype(xp.int32)
+                self.pos_x[idx] = self.rs.randint(0, L, size=M0).astype(xp.int32)
 
         # --- per-agent time budget: column 0 = idle, 1..m = tasks, m+1 = coordination
         self.time_budget = xp.zeros((N, m + 2), dtype=xp.int32)
@@ -162,8 +178,20 @@ class Simulation:
 
         # ---------------------------------------------------------- 4. finished jobs
         comp = xp.zeros(m, dtype=xp.int64)
+        n_delivering = 0
         if working.size:
-            done = working[self.progress[working] >= self.D[st[working]]]
+            wt_ = st[working]
+            work_done = self.progress[working] >= self.D[wt_]
+            if p.centralization > 0:
+                # hub jobs only count once the agent is ON the hub line (column for
+                # horizontal agents, row for vertical ones)
+                at_hub = xp.where(self.task_dir[wt_] == 0,
+                                  self.pos_x[working] == self.hub_line,
+                                  self.pos_y[working] == self.hub_line)
+                hubj = self.hub_job[working]
+                n_delivering = (work_done & hubj & ~at_hub).sum()
+                work_done = work_done & (~hubj | at_hub)
+            done = working[work_done]
             if done.size:
                 dt = st[done]
                 comp = xp.bincount(dt, minlength=m)[:m]
@@ -181,7 +209,7 @@ class Simulation:
                     traffic.remove(self.occ, self.task_dir[st[q]], self.pos_y[q], self.pos_x[q])
                     st[q] = IDLE
                     self.progress[q] = 0.0
-        if self.coordination:
+        if self.coordination and not self.fixed_coord:
             cs = xp.nonzero(st == self.COORD)[0]
             if cs.size:
                 st[cs[rs.random_sample(int(cs.size)) < p.p_quit_coord]] = IDLE
@@ -223,6 +251,8 @@ class Simulation:
                     self.pos_y[ids] = ey
                     self.pos_x[ids] = ex
                     self.progress[ids] = 0.0
+                    if p.centralization > 0 and ids.size:
+                        self.hub_job[ids] = rs.random_sample(int(ids.size)) < p.centralization
                 cid = cand[~wsel]
                 if cid.size:
                     cy, cx = self.bureau.place(rs, int(cid.size), sig_y, sig_x, p.coord_placement)
@@ -269,6 +299,7 @@ class Simulation:
             "signal_rate": self.signal_rate,
             "s_coord": self.s_coord,
             "covered_frac": self.covered_frac,
+            "n_delivering": n_delivering,
         }
 
     # ================================================================== utilities

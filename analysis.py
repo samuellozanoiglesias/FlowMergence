@@ -106,18 +106,42 @@ def scaling_table(df: pd.DataFrame, by: list, x: str = "N", y: str = "Y", n_boot
     return pd.DataFrame(rows)
 
 
-def local_exponents(df: pd.DataFrame, by: list, x: str = "N", y: str = "Y") -> pd.DataFrame:
+def local_exponents(df: pd.DataFrame, by: list, x: str = "N", y: str = "Y", stride: int = 1) -> pd.DataFrame:
+    """Local exponent between N_i and N_{i+stride}. stride=2 (a factor 4 in N for a
+    powers-of-two grid) smooths the lattice-size zigzag."""
     rows = []
     for keys, g in df.groupby(by):
         keys = keys if isinstance(keys, tuple) else (keys,)
         m = g.groupby(x)[y].mean().sort_index()
         xs, ys = m.index.to_numpy(float), m.to_numpy(float)
-        for i in range(len(xs) - 1):
-            if ys[i] > 0 and ys[i + 1] > 0:
-                slope = (math.log(ys[i + 1]) - math.log(ys[i])) / (math.log(xs[i + 1]) - math.log(xs[i]))
+        for i in range(len(xs) - stride):
+            j = i + stride
+            if ys[i] > 0 and ys[j] > 0:
+                slope = (math.log(ys[j]) - math.log(ys[i])) / (math.log(xs[j]) - math.log(xs[i]))
                 row = dict(zip(by, keys))
-                row.update({"N_mid": math.sqrt(xs[i] * xs[i + 1]), "local_exponent": slope, "observable": y})
+                row.update({"N_mid": math.sqrt(xs[i] * xs[j]), "local_exponent": slope, "observable": y})
                 rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def crossover_sizes(loc: pd.DataFrame, by: list) -> pd.DataFrame:
+    """For each group: the first N_mid from which the (smoothed) local β stays below 1,
+    the largest local β (city strength) and the smallest (company strength)."""
+    rows = []
+    for keys, g in loc.groupby(by):
+        keys = keys if isinstance(keys, tuple) else (keys,)
+        g = g.sort_values("N_mid")
+        b = g.local_exponent.to_numpy()
+        n = g.N_mid.to_numpy()
+        cross = math.nan
+        for i in range(len(b)):
+            if np.all(b[i:] < 1):
+                cross = float(n[i])
+                break
+        row = dict(zip(by, keys))
+        row.update({"N_cross": cross, "beta_local_max": float(np.nanmax(b)),
+                    "beta_local_min": float(np.nanmin(b)), "beta_local_at_largest_N": float(b[-1])})
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -295,15 +319,25 @@ def main():
     gamma = scaling_table(df, by, "N", "M", args.nboot)
     gamma_a = scaling_table(df, by, "N", "M_active", args.nboot)
     loc = local_exponents(df, by, "N", "Y")
+    loc2 = local_exponents(df, by, "N", "Y", stride=2)
+    cross = crossover_sizes(loc2, by) if not loc2.empty else pd.DataFrame()
     table = pd.concat([beta, gamma, gamma_a], ignore_index=True)
     table.to_csv(os.path.join(out, "exponents.csv"), index=False)
     loc.to_csv(os.path.join(out, "local_exponents.csv"), index=False)
+    loc2.to_csv(os.path.join(out, "local_exponents_smooth.csv"), index=False)
+    if not cross.empty:
+        cross.to_csv(os.path.join(out, "crossover.csv"), index=False)
+        with pd.option_context("display.width", 200, "display.max_rows", 200):
+            print("\ncrossover (smoothed local β stays < 1 from N_cross on):")
+            print(cross.round(3).to_string(index=False))
     df.to_csv(os.path.join(out, "runs_flat.csv"), index=False)
     with pd.option_context("display.width", 160, "display.max_rows", 200):
         print(beta[by + ["exponent", "ci_lo", "ci_hi", "r2"]].to_string(index=False))
 
     plots.plot_scaling(df, by, "Y", os.path.join(out, "scaling_Y.png"))
     plots.plot_local_exponents(loc, by, os.path.join(out, "local_beta.png"))
+    if not loc2.empty:
+        plots.plot_local_exponents(loc2, by, os.path.join(out, "local_beta_smooth.png"))
     plots.plot_bureaucracy(df, by, os.path.join(out, "bureaucracy.png"))
     plots.plot_specialization(df, by, os.path.join(out, "specialization.png"))
     plots.plot_congestion(df, by, os.path.join(out, "congestion.png"))

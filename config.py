@@ -10,6 +10,8 @@ config.py — Experiment definitions (sweeps). Each experiment has:
 Recommended order:
     smoke -> calibration_fine -> calibration_robustness -> density_scan (+ _nocoord,
     _spillover) -> encounter_check -> control_density -> lambda_sweep (+ _nocoord)
+    -> centralization_sweep (PRIORITY) -> centralization_constant_density -> coord_value
+    (+ _endogenous) -> coord_frontier_fixed (+ _endogenous) -> jam_transition
     -> lambda_sweep_nocoord -> phase_diagram -> area_exponent -> ossification
     -> useless_bureaucracy -> learning_ablation -> large_N (GPU)
 """
@@ -30,6 +32,7 @@ N_WIDE = [2 ** k for k in range(6, 18)]         # 64 … 131072 (3.3 decades)
 # 0.05 (N=64) -> 0.40 (N=32768) -> 0.63 (N=131072): it crosses the whole hump of
 # y(ρ), from the spillover-dominated regime (ε > 0) to beyond the BML jam (ε < 0).
 DENSITY_PATH = dict(area_exponent=2 / 3, rho0=0.0125)
+N_REF = 64   # reference size for the derived key rho_at_Nref
 
 EXPERIMENTS = {
     "smoke": dict(
@@ -91,6 +94,98 @@ EXPERIMENTS = {
                   spillover=[0.0, 1.0, 2.0, 4.0, 8.0]),
         seeds=4,
     ),
+    # ================================================================== PRIORITY: one knob
+    "centralization_sweep": dict(
+        description="PRIORITY. One knob, centralization c: fraction of jobs that must be "
+                    "delivered to a central hub. Same density path for every c (a=2/3). "
+                    "Expect local β > 1 for small c (city) and < 1 for large c (company), with "
+                    "a crossover size that shrinks as c grows. Coordination on and off.",
+        base=dict(**DENSITY_PATH, exclusion=0.5),
+        grid=dict(N=N_WIDE, centralization=[0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0],
+                  coordination=[True, False]),
+        seeds=6,
+    ),
+    "centralization_examples": dict(
+        description="Time series for a few centralized runs: check that output settles "
+                    "before T_burn even when delivery trips are long.",
+        base=dict(**DENSITY_PATH, exclusion=0.5),
+        grid=dict(N=[4096, 65536], centralization=[0.0, 0.1, 1.0]),
+        seeds=1,
+        timeseries=True,
+    ),
+    "densification_x_centralization": dict(
+        description="Both knobs together: how fast density grows with N (area exponent a; "
+                    "density ∝ N^(1−a)) and how centralized flows are (c). Every run starts "
+                    "from density 0.05 at N=64 (derived key rho_at_Nref). Prediction: "
+                    "β − 1 ≈ (1 − a)·ε − centralization penalty; trips scale as L ∝ N^(a/2).",
+        base=dict(exclusion=0.5, coordination=True),
+        grid=dict(N=N_GRID, area_exponent=[1.0, 0.85, 0.75, 2 / 3, 0.6],
+                  rho_at_Nref=[0.05], centralization=[0.0, 0.05, 0.2]),
+        seeds=4,
+    ),
+    "centralization_constant_density": dict(
+        description="Same knob at CONSTANT density (a=1, ρ=0.2): isolates the organizational "
+                    "effect. c=0 must give β ≈ 1 (extensivity); c>0 should give β < 1.",
+        base=dict(area_exponent=1.0, rho0=0.2, exclusion=0.5),
+        grid=dict(N=N_GRID, centralization=[0.0, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0],
+                  coordination=[True, False]),
+        seeds=4,
+    ),
+    # ================================================================== coordination value
+    "coord_value": dict(
+        description="Is coordination LESS USEFUL in big / centralized systems? Fixed "
+                    "bureaucracy (coord_mode=fixed) at constant density near the jam "
+                    "(ρ=0.4, λ=1). Output vs coordinator fraction for each N and c -> "
+                    "marginal value of a coordinator vs size.",
+        base=dict(area_exponent=1.0, rho0=0.4, exclusion=1.0, coordination=True,
+                  coord_mode="fixed", coord_relocate_prob=0.1),
+        grid=dict(N=[1024, 4096, 16384, 65536], centralization=[0.0, 0.5, 1.0],
+                  coord_fixed_frac=[0.0, 0.005, 0.01, 0.02, 0.04, 0.08]),
+        seeds=3,
+    ),
+    "coord_value_endogenous": dict(
+        description="Same points as coord_value with EMERGENT bureaucracy, to compare the "
+                    "amount that emerges with the optimum.",
+        base=dict(area_exponent=1.0, rho0=0.4, exclusion=1.0, coordination=True),
+        grid=dict(N=[1024, 4096, 16384, 65536], centralization=[0.0, 0.5, 1.0]),
+        seeds=3,
+    ),
+    # ================================================================== coordination frontier
+    "coord_frontier_fixed": dict(
+        description="Optimal bureaucracy M*(λ, ρ): fixed coordinator fractions on a (λ, ρ) "
+                    "grid at N=16384, constant density.",
+        base=dict(N=16384, area_exponent=1.0, coordination=True, coord_mode="fixed",
+                  coord_relocate_prob=0.1),
+        grid=dict(rho0=[0.2, 0.3, 0.4, 0.5, 0.6], exclusion=[0.5, 0.75, 1.0],
+                  coord_fixed_frac=[0.0, 0.005, 0.01, 0.02, 0.04, 0.08]),
+        seeds=3,
+    ),
+    "coord_frontier_endogenous": dict(
+        description="Same (λ, ρ) grid with emergent bureaucracy: compare with the optimum.",
+        base=dict(N=16384, area_exponent=1.0, coordination=True),
+        grid=dict(rho0=[0.2, 0.3, 0.4, 0.5, 0.6], exclusion=[0.5, 0.75, 1.0]),
+        seeds=3,
+    ),
+    # ================================================================== jamming transition
+    "jam_transition": dict(
+        description="Is the collapse a true phase transition? Fine (λ, ρ) grid at three sizes, "
+                    "constant density, with and without coordinators. A true transition "
+                    "sharpens as N grows (BML).",
+        base=dict(area_exponent=1.0),
+        grid=dict(N=[4096, 16384, 65536],
+                  rho0=[0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6],
+                  exclusion=[0.8, 0.85, 0.9, 0.95, 1.0],
+                  coordination=[False, True]),
+        seeds=4,
+    ),
+    # ================================================================== optional
+    "spillover_on_path": dict(
+        description="(optional) How strong can the city regime get? Spillover κ along the "
+                    "density path.",
+        base=dict(**DENSITY_PATH, exclusion=0.5),
+        grid=dict(N=N_GRID, spillover=[1.0, 2.0, 4.0, 8.0]),
+        seeds=4,
+    ),
     "control_density": dict(
         description="CONTROL: constant density (a=1). β ≈ 1 is expected for every λ. "
                     "If not, there is a finite-size effect or a bug.",
@@ -141,15 +236,15 @@ EXPERIMENTS = {
     ),
     "ossification": dict(
         description="Bureaucracy: tenure (p_quit_coord), conflict (η) and relocation.",
-        base=dict(area_exponent=0.85, exclusion=0.8),
+        base=dict(**DENSITY_PATH, exclusion=1.0),
         grid=dict(N=N_COARSE, p_quit_coord=[0.001, 0.01, 0.1],
                   coord_conflict=[0.0, 0.1, 0.3], coord_relocate_prob=[0.0, 0.05]),
         seeds=4,
     ),
     "useless_bureaucracy": dict(
         description="Control: coordinators that do not help (q=0). Cost of the role by itself.",
-        base=dict(area_exponent=0.85, coord_strength=0.0, coord_signal="all"),
-        grid=dict(N=N_GRID, exclusion=[0.2, 0.8]),
+        base=dict(**DENSITY_PATH, coord_strength=0.0, coord_signal="all"),
+        grid=dict(N=N_GRID, exclusion=[0.5, 1.0]),
         seeds=6,
     ),
     "learning_ablation": dict(
@@ -204,6 +299,12 @@ def build_jobs(name: str, experiment_datetime: str, extra_base: dict | None = No
             ratio = kw.pop("phi_over_xi")
             xi = kw.get("xi", Params().xi)
             kw["phi"] = round(ratio * xi, 6)
+        if "rho_at_Nref" in kw:
+            # same starting density at N = N_REF for every area exponent a:
+            # density ≈ rho0 · N^(1−a)  ->  rho0 = rho_ref / N_REF^(1−a)
+            rho_ref = kw.pop("rho_at_Nref")
+            a = kw.get("area_exponent", Params().area_exponent)
+            kw["rho0"] = round(rho_ref / N_REF ** (1.0 - a), 8)
         p = Params(**kw)
         p.validate()
         pd = p.to_dict()

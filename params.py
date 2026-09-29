@@ -172,6 +172,27 @@ class Params:
     spot. 0 = rigid bureaucracy."""
     blocked_ema: float = 0.05
     """Smoothing of the blocking rates."""
+    coord_mode: str = "endogenous"
+    """'endogenous' (default): coordinators are recruited through the threshold model and
+    quit with p_quit_coord, so M EMERGES. 'fixed': round(coord_fixed_frac·N) agents are
+    coordinators from t=0, never quit and are never recruited (the coordination role is
+    removed from recruitment). Use it to measure the value of a GIVEN amount of
+    bureaucracy and to find the optimal amount. Set coord_relocate_prob > 0 so fixed
+    coordinators can move to where congestion is."""
+    coord_fixed_frac: float = 0.0
+    """[NEW] Fraction of agents that are coordinators in coord_mode='fixed'."""
+
+    # ------------------------------------------------------------------ centralization
+    centralization: float = 0.0
+    """[NEW] c ∈ [0,1]: fraction of jobs that, once their work is done, must be DELIVERED
+    to a central hub before they count (horizontal agents: the central column x = L//2;
+    vertical agents: the central row y = L//2). The delivery trip is physical, so it is
+    subject to blocking, and all such trips converge on the hub.
+    c = 0: decentralized "city" (jobs are delivered locally, the original model).
+    c > 0: centralized "organization": the mean delivery distance ~ L/2 grows with system
+    size even at constant density, a system-wide coupling like the transport networks
+    West invokes for organisms and firms. Expect sublinear scaling once c·L exceeds the
+    normal job duration (~20 steps)."""
 
     # ------------------------------------------------------------------ time
     T_burn: int = 6000
@@ -230,6 +251,12 @@ class Params:
             errs.append("coord_placement ∈ {congestion, random}")
         if self.coord_signal not in ("cross", "all"):
             errs.append("coord_signal ∈ {cross, all}")
+        if self.coord_mode not in ("endogenous", "fixed"):
+            errs.append("coord_mode ∈ {endogenous, fixed}")
+        if not 0.0 <= self.coord_fixed_frac < 1.0:
+            errs.append("coord_fixed_frac must be in [0,1)")
+        if not 0.0 <= self.centralization <= 1.0:
+            errs.append("centralization must be in [0,1]")
         if self.encounter not in ("stimulus", "uniform"):
             errs.append("encounter ∈ {stimulus, uniform}")
         if self.backend not in ("numpy", "cupy"):
