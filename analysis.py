@@ -59,6 +59,11 @@ def load_results(path: str) -> pd.DataFrame:
         raise ValueError(f"no valid results in {path}")
     if "phi" in df and "xi" in df:
         df["phi_over_xi"] = (df["phi"] / df["xi"]).round(4)   # derived: the master knob
+    need = ("route_length", "practice_gain", "spillover", "exp_decay", "learning_exponent")
+    if all(c in df for c in need):
+        # derived: job length in moves of a typically skilled agent (see config route_moves)
+        w_ref = ((df.practice_gain + df.spillover) / df.exp_decay) ** df.learning_exponent
+        df["route_moves"] = (df.route_length / w_ref).round(1)
     return df
 
 
@@ -223,6 +228,30 @@ def density_response(df: pd.DataFrame, group: list) -> pd.DataFrame:
     return pd.concat(rows, ignore_index=True)
 
 
+def epsilon_summary(df: pd.DataFrame, group: list) -> pd.DataFrame:
+    """One line per group: ε fitted over the whole density range and over the sparse half,
+    the β it implies for a = 2/3 (city-like densification) and a = 0.85, and the division of
+    labour (DOL must stay high, or the extra superlinearity is not specialization-driven)."""
+    rows = []
+    for gk, g in (df.groupby(group) if group else [((), df)]):
+        gk = gk if isinstance(gk, tuple) else (gk,)
+        m = g.groupby("rho0").agg(d=("density", "mean"), y=("y_per_capita", "mean")).sort_values("d")
+        m = m[m.y > 0]
+        if len(m) < 2:
+            continue
+        eps_all = float(np.polyfit(np.log(m.d), np.log(m.y), 1)[0])
+        half = m.iloc[: max(2, (len(m) + 1) // 2)]
+        eps_sparse = float(np.polyfit(np.log(half.d), np.log(half.y), 1)[0])
+        row = dict(zip(group, gk))
+        row.update({"eps_all": eps_all, "eps_sparse": eps_sparse,
+                    "beta_a0.67_all": 1 + eps_all / 3, "beta_a0.67_sparse": 1 + eps_sparse / 3,
+                    "beta_a0.85_all": 1 + 0.15 * eps_all, "y_min": float(m.y.min()), "y_max": float(m.y.max()),
+                    "DOL": float(g.DOL_tasks.mean()) if "DOL_tasks" in g else math.nan,
+                    "idle": float(g.idle_frac.mean()) if "idle_frac" in g else math.nan})
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values("eps_all", ascending=False) if rows else pd.DataFrame()
+
+
 def _write_analysis_config(out: str, path: str, by: list, args, df: pd.DataFrame):
     varying = [c for c in df.columns if c in paths.ABBREV and df[c].nunique() > 1]
     with open(os.path.join(out, "analysis_config.txt"), "w") as fh:
@@ -299,6 +328,11 @@ def main():
             with pd.option_context("display.width", 200, "display.max_rows", 500):
                 print(resp.round(4).to_string(index=False))
             plots.plot_density_response(resp, others, os.path.join(out, "density_response.png"))
+            eps = epsilon_summary(df, others)
+            eps.to_csv(os.path.join(out, "epsilon_summary.csv"), index=False)
+            with pd.option_context("display.width", 200, "display.max_rows", 200):
+                print("\ndensity elasticity ε and the size exponent it implies (β − 1 ≈ (1 − a)·ε):")
+                print(eps.round(3).to_string(index=False))
         if len(by) == 2:
             for col in map_cols:
                 plots.plot_phase_diagram(tab, by[0], by[1], os.path.join(out, f"map_{col}.png"),

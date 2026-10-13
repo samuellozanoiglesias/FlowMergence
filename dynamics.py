@@ -12,8 +12,10 @@ Order of one step t
     1. BML movement (one direction per step if traffic_light).
     2. Coordinator bookkeeping: active if there was signal in its zone; relocation.
     3. Learning: practice + spillover; forgetting for everyone.
-    4. Job completion: output; the agent leaves the lattice. With centralization c > 0,
-       a fraction c of jobs must first be delivered to the hub line (L//2).
+    4. Job completion: output; the agent leaves the lattice. Hub jobs (a fraction c, or
+       chosen by the agent when delivery_choice='learned') must first be delivered to the
+       hub line (L//2). With learned choice, each finished job updates the agent's p_hub
+       (Bush–Mosteller, or per-mode payoff estimates + logit if choice_rule = 'logit').
     5. Quitting (work with p_quit_work, coordination with p_quit_coord).
     6. Stimuli: composition -> s_j; signal rate -> s_C.
     7. Recruitment of idle agents: each one "encounters" one role (with probability ∝
@@ -29,6 +31,7 @@ from __future__ import annotations
 
 import numpy as np
 
+import hubs
 import mechanism as mech
 import traffic
 from backend import get_xp, to_numpy
@@ -89,6 +92,39 @@ class Simulation:
         # --- centralization: which jobs must be delivered to the hub line
         self.hub_job = xp.zeros(N, dtype=bool)
         self.hub_line = L // 2
+        # polycentric delivery (E9): K evenly spaced hub lines per direction, K = 1 (default)
+        # is exactly the single line L // 2. With K = 1 the original comparison is used, so
+        # default runs are bit-identical to the original model.
+        eta = float(getattr(p, "hub_count_exponent", 0.0))
+        self.hub_positions = hubs.hub_positions(L, eta, float(getattr(p, "hub_spacing_ref", 16.0)))
+        self.n_hubs = int(self.hub_positions.size)
+        self.hub_is = xp.asarray(hubs.hub_mask(L, eta, float(getattr(p, "hub_spacing_ref", 16.0))))
+        self.learn_while_delivering = bool(getattr(p, "learn_while_delivering", True))
+        self.learned_choice = p.delivery_choice == "learned"
+        self.any_hub = self.learned_choice or p.centralization > 0
+        self.job_start = xp.zeros(N, dtype=xp.int32)
+        self.n_jobs = xp.zeros(N, dtype=xp.int32)      # jobs completed per agent (whole run)
+        if self.learned_choice:
+            self.p_hub = xp.full(N, p.choice_p0, dtype=xp.float32)
+            xp.clip(self.p_hub, p.choice_explore, 1.0 - p.choice_explore, out=self.p_hub)
+            self.aspiration = xp.zeros(N, dtype=xp.float32)   # 0 = no payoff seen yet
+            # choice_rule: 'bush_mosteller' (default, shared aspiration) or 'logit'
+            # (payoff-rate estimate per mode; see mechanism.update_delivery_values)
+            self.choice_rule = getattr(p, "choice_rule", "bush_mosteller")
+            if self.choice_rule == "logit":
+                self.q_hub = xp.zeros(N, dtype=xp.float32)    # 0 = mode never tried
+                self.q_loc = xp.zeros(N, dtype=xp.float32)
+            # what the choice rule learns from: 'raw' payoff rate (value / duration) or
+            # 'per_skill' = raw / own efficiency w at completion, which removes the drift of
+            # all payoffs with experience (a rarely tried mode otherwise keeps a stale,
+            # novice-level estimate: competency trap)
+            self.choice_payoff = getattr(p, "choice_payoff", "raw")
+            # step at which each mode was last tried (−1 = never): staleness diagnostic
+            self.t_tried_hub = xp.full(N, -1, dtype=xp.int32)
+            self.t_tried_loc = xp.full(N, -1, dtype=xp.int32)
+        else:
+            self.p_hub = None
+            self.aspiration = None
 
         # --- fixed bureaucracy: permanent coordinators from t = 0
         if self.fixed_coord:
@@ -172,22 +208,38 @@ class Simulation:
             tasks = st[working]
             n_same = traffic.same_task_counts(xp, working, tasks, self.pos_y, self.pos_x,
                                               m, L, p.spillover_radius)
-            self.exp[working, tasks] += (p.practice_gain + p.spillover * n_same).astype(xp.float32)
+            gain = (p.practice_gain + p.spillover * n_same).astype(xp.float32)
+            if self.any_hub and not self.learn_while_delivering:
+                # E5 ablation: an agent whose work is done and that is only carrying the job to
+                # the hub gains no experience (it is still counted as a spillover source)
+                carrying = self.hub_job[working] & (self.progress[working] >= self.D[tasks])
+                gain = xp.where(carrying, xp.float32(0.0), gain).astype(xp.float32)
+            self.exp[working, tasks] += gain
             mean_w = mech.efficiency(self.exp[working, tasks], p.learning_exponent, p.w_max).mean()
             mean_n = n_same.mean()
 
         # ---------------------------------------------------------- 4. finished jobs
         comp = xp.zeros(m, dtype=xp.int64)
         n_delivering = 0
+        work_value, n_done_hub, n_start_hub, n_start = 0.0, 0, 0, 0
+        # realized PRIVATE payoff rates (value / job duration) of the jobs finished this step,
+        # by delivery mode: the fresh private return of each mode, for any rule or fixed c
+        r_hub_sum, r_hub_log, r_hub_n = 0.0, 0.0, 0
+        r_loc_sum, r_loc_log, r_loc_n = 0.0, 0.0, 0
         if working.size:
             wt_ = st[working]
             work_done = self.progress[working] >= self.D[wt_]
-            if p.centralization > 0:
+            if self.any_hub:
                 # hub jobs only count once the agent is ON the hub line (column for
                 # horizontal agents, row for vertical ones)
-                at_hub = xp.where(self.task_dir[wt_] == 0,
-                                  self.pos_x[working] == self.hub_line,
-                                  self.pos_y[working] == self.hub_line)
+                if self.n_hubs == 1:
+                    at_hub = xp.where(self.task_dir[wt_] == 0,
+                                      self.pos_x[working] == self.hub_line,
+                                      self.pos_y[working] == self.hub_line)
+                else:
+                    at_hub = xp.where(self.task_dir[wt_] == 0,
+                                      self.hub_is[self.pos_x[working]],
+                                      self.hub_is[self.pos_y[working]])
                 hubj = self.hub_job[working]
                 n_delivering = (work_done & hubj & ~at_hub).sum()
                 work_done = work_done & (~hubj | at_hub)
@@ -195,6 +247,35 @@ class Simulation:
             if done.size:
                 dt = st[done]
                 comp = xp.bincount(dt, minlength=m)[:m]
+                hub_done = self.hub_job[done]
+                val = self.D[dt] * (1.0 + p.hub_premium * hub_done)
+                work_value = val.sum()
+                n_done_hub = hub_done.sum()
+                self.n_jobs[done] += 1
+                # payoff rate of the finished job = value / steps since it was taken
+                dur = (self.t - self.job_start[done] + 1).astype(xp.float32)
+                rate = (val / xp.maximum(dur, 1.0)).astype(xp.float32)
+                lrate = xp.log(xp.maximum(rate, 1e-12))
+                r_hub_n, r_loc_n = n_done_hub, done.size - n_done_hub
+                r_hub_sum, r_loc_sum = (rate * hub_done).sum(), (rate * ~hub_done).sum()
+                r_hub_log, r_loc_log = (lrate * hub_done).sum(), (lrate * ~hub_done).sum()
+                if self.learned_choice:
+                    t_now = xp.int32(self.t)
+                    self.t_tried_hub[done] = xp.where(hub_done, t_now, self.t_tried_hub[done])
+                    self.t_tried_loc[done] = xp.where(hub_done, self.t_tried_loc[done], t_now)
+                    if self.choice_payoff == "per_skill":
+                        w_done = mech.efficiency(self.exp[done, dt], p.learning_exponent, p.w_max)
+                        rate = (rate / xp.maximum(w_done, 1e-6)).astype(xp.float32)
+                    if self.choice_rule == "logit":
+                        self.p_hub[done], self.q_hub[done], self.q_loc[done] = \
+                            mech.update_delivery_values(
+                                self.p_hub[done], self.q_hub[done], self.q_loc[done], hub_done,
+                                rate, p.choice_aspiration_lr, p.choice_temperature,
+                                p.choice_explore)
+                    else:
+                        self.p_hub[done], self.aspiration[done] = mech.update_delivery_choice(
+                            self.p_hub[done], self.aspiration[done], hub_done, rate,
+                            p.choice_lr, p.choice_aspiration_lr, p.choice_explore)
                 traffic.remove(self.occ, self.task_dir[dt], self.pos_y[done], self.pos_x[done])
                 st[done] = IDLE
                 self.progress[done] = 0.0
@@ -251,8 +332,16 @@ class Simulation:
                     self.pos_y[ids] = ey
                     self.pos_x[ids] = ex
                     self.progress[ids] = 0.0
-                    if p.centralization > 0 and ids.size:
-                        self.hub_job[ids] = rs.random_sample(int(ids.size)) < p.centralization
+                    if ids.size:
+                        self.job_start[ids] = self.t
+                        if self.learned_choice:
+                            self.hub_job[ids] = rs.random_sample(int(ids.size)) < self.p_hub[ids]
+                        elif p.centralization > 0:
+                            self.hub_job[ids] = rs.random_sample(int(ids.size)) < p.centralization
+                        else:
+                            self.hub_job[ids] = False
+                        n_start_hub = self.hub_job[ids].sum()
+                        n_start = int(ids.size)
                 cid = cand[~wsel]
                 if cid.size:
                     cy, cx = self.bureau.place(rs, int(cid.size), sig_y, sig_x, p.coord_placement)
@@ -300,6 +389,13 @@ class Simulation:
             "s_coord": self.s_coord,
             "covered_frac": self.covered_frac,
             "n_delivering": n_delivering,
+            "work_value": work_value,
+            "done_hub": n_done_hub,
+            "started_hub": n_start_hub,
+            "started": n_start,
+            "mean_p_hub": (self.p_hub.mean() if self.learned_choice else 0.0),
+            "rate_hub_sum": r_hub_sum, "rate_hub_log": r_hub_log, "rate_hub_n": r_hub_n,
+            "rate_loc_sum": r_loc_sum, "rate_loc_log": r_loc_log, "rate_loc_n": r_loc_n,
         }
 
     # ================================================================== utilities

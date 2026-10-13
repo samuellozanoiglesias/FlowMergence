@@ -1,0 +1,16 @@
+Figures produced by paper_figures.py
+
+fig2_power_law_transition.pdf / fig2_power_law_transition.png
+  panels: (a) Y/N vs N per area exponent a (points: mean over seeds; lines: fitted power laws); (b) smoothed local exponent β(N) per a; (c) β vs a with 95% bootstrap CI, prediction 1 + ε(1 − a) with ε from the constant-density scan (solid) and fitted ε (dotted)
+  data:
+    paper_density_exponent: 210 runs  (/data/samuel_lozano/FlowMergence/experiments/paper_density_exponent/exp_2026_10_02-00_27_42/results.jsonl)
+    density_window_scan: 24 runs  (/data/samuel_lozano/FlowMergence/experiments/density_window_scan/exp_2026_10_02-00_07_44/results.jsonl)
+
+Experiments NOT found (their figures or panels are missing):
+    choice_trap_test
+    paper_centralization_sweep
+    paper_choice_fixed
+    paper_choice_logit_lockin
+    paper_choice_logit_sweep
+    paper_constant_density
+    paper_densification

@@ -1,0 +1,16 @@
+[data] paper_density_exponent: 210 runs  (/data/samuel_lozano/FlowMergence/experiments/paper_density_exponent/exp_2026_10_02-00_27_42/results.jsonl)
+[data] density_window_scan: 24 runs  (/data/samuel_lozano/FlowMergence/experiments/density_window_scan/exp_2026_10_02-00_07_44/results.jsonl)
+
+== Fig 2: one knob, pure power laws (paper_density_exponent)
+  densities visited: 0.0178 – 0.0815
+  ε fitted from β vs a (through β = 1 at a = 1): 0.885
+  ε measured at constant density over the same densities: 0.879 (spread of local ε 0.055)
+  a = 0.760  β = 1.225 [1.219, 1.230]  R² = 0.9999  local β 1.203–1.272 (s.d. 0.023)  predicted 1.211
+  a = 0.824  β = 1.176 [1.171, 1.184]  R² = 0.9998  local β 1.151–1.252 (s.d. 0.035)  predicted 1.155
+  a = 0.900  β = 1.107 [1.104, 1.110]  R² = 0.9998  local β 1.088–1.175 (s.d. 0.029)  predicted 1.088
+  a = 1.000  β = 1.016 [1.014, 1.018]  R² = 0.9999  local β 0.996–1.061 (s.d. 0.024)  predicted 1.000
+  a = 1.100  β = 0.926 [0.922, 0.931]  R² = 0.9999  local β 0.910–0.953 (s.d. 0.016)  predicted 0.912
+  a = 1.176  β = 0.856 [0.854, 0.858]  R² = 0.9999  local β 0.843–0.874 (s.d. 0.013)  predicted 0.845
+  a = 1.240  β = 0.807 [0.807, 0.808]  R² = 0.9998  local β 0.791–0.857 (s.d. 0.027)  predicted 0.789
+  largest spread of local β over N for any a: 0.102; smallest R²: 0.9998
+  (a pure power law: R² ≈ 1 and a local-β spread comparable to the seed noise)

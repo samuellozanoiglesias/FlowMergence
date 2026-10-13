@@ -56,6 +56,9 @@ ABBREV = {
     "coord_placement": "place", "coord_relocate_prob": "reloc", "blocked_ema": "bema",
     "T_burn": "Tb", "T_measure": "Tm", "encounter": "enc",
     "coord_mode": "cmode", "coord_fixed_frac": "Mfix", "centralization": "cen",
+    # Paper 1 (polycentric delivery, learning while delivering); absent from the names of
+    # earlier runs because their values there are the defaults
+    "hub_count_exponent": "heta", "hub_spacing_ref": "hsp", "learn_while_delivering": "lwd",
 }
 
 

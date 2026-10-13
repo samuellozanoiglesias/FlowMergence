@@ -1,0 +1,3 @@
+experiment,learning_exponent,spillover,spillover_radius,route_length,exclusion,N,rho_lo,rho_hi,factor,epsilon,epsilon_spread,n_intervals,rho_mid,max_abs_1_minus_a_N_GRID,beta_city_N_GRID,beta_company_N_GRID,max_abs_1_minus_a_N_WIDE,beta_city_N_WIDE,beta_company_N_WIDE
+density_window_scan,1.0,8.0,4,225000.0,0.5,4096,0.015,0.0994,6.6376,0.8534,0.0827,5,0.0386,0.3034,1.2589,0.7411,0.2482,1.2119,0.7881
+density_window_scan_b075,0.75,4.0,2,17677.67,0.5,4096,0.0699,0.2992,4.2782,0.4914,0.0173,4,0.1447,0.233,1.1145,0.8855,0.1906,1.0937,0.9063

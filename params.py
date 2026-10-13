@@ -44,7 +44,7 @@ class Params:
     """Number of productive tasks (routes). Task j moves in direction j % 2
     (0 = horizontal/right, 1 = vertical/up), like the two species of [BML]."""
 
-    route_length: float = 200.0
+    route_length: float = 225000.0
     """[NEW] Work needed to complete one job (route units). An agent with efficiency w
     advances w units per successful move ("it learns the way")."""
 
@@ -71,12 +71,12 @@ class Params:
     practice_gain: float = 1.0
     """[NEW] g: experience gained per step spent working on the task."""
 
-    spillover: float = 2.0
+    spillover: float = 8.0
     """[NEW] κ: extra experience per OTHER agent doing the same task within the
     spillover radius. This is the source of SUPERLINEARITY (the analogue of social
     interactions in cities, West/Bettencourt)."""
 
-    spillover_radius: int = 2
+    spillover_radius: int = 4
     """[NEW] R: Chebyshev radius of the spillover neighbourhood, (2R+1)^2 cells."""
 
     exp_decay: float = 0.002
@@ -84,11 +84,11 @@ class Params:
     The memory (~1/ρ = 500 steps) must exceed the duration of a job; otherwise
     specializing barely pays off."""
 
-    learning_exponent: float = 0.5
+    learning_exponent: float = 1.0
     """[NEW] b: efficiency w = (1+e)**b (Wright's law). b = 0 removes the payoff of
     specializing (ablation)."""
 
-    w_max: float = 200.0
+    w_max: float = 1e12
     """[NEW] Efficiency cap. Too low a cap kills superlinearity."""
 
     # ------------------------------------------------------------------ response thresholds
@@ -192,7 +192,52 @@ class Params:
     c > 0: centralized "organization": the mean delivery distance ~ L/2 grows with system
     size even at constant density, a system-wide coupling like the transport networks
     West invokes for organisms and firms. Expect sublinear scaling once c·L exceeds the
-    normal job duration (~20 steps)."""
+    normal job duration (~20 steps).
+    Ignored when delivery_choice = 'learned' (then c emerges from the agents' choices)."""
+    delivery_choice: str = "fixed"
+    """'fixed' (default): each new job is centralized with probability c = centralization.
+    'learned': each agent chooses hub or local delivery with its own probability p_hub,
+    learned by Bush–Mosteller reinforcement on its payoff rate (value / job duration).
+    Centralization, Γ and β then EMERGE; the knob is hub_premium."""
+    hub_premium: float = 0.0
+    """[NEW] π: a hub (centralized) job is worth (1 + π)·D instead of D ("value of
+    integration"). Only used for choices and for the value output Y_value. π = 0 tests
+    whether centralization emerges from the endogenous hub benefit alone (spillovers in
+    the crowd around the hub)."""
+    choice_p0: float = 0.5
+    """Initial p_hub of every agent (learned choice). 0.95 / 0.05 test lock-in: does a
+    system that 'grew up' centralized or decentralized stay that way?"""
+    choice_lr: float = 0.3
+    """Bush–Mosteller learning rate (per finished job)."""
+    choice_aspiration_lr: float = 0.1
+    """Rate at which each agent's aspiration (running payoff rate) tracks its payoffs."""
+    choice_explore: float = 0.02
+    """p_hub is kept in [explore, 1 − explore]: every agent keeps sampling both modes."""
+    choice_rule: str = "bush_mosteller"   # [NEW] option B learning rule: 'bush_mosteller'
+                                          # (one shared aspiration) | 'logit' (payoff estimate
+                                          # per mode, logit on their log ratio). With 'logit',
+                                          # choice_aspiration_lr is the value-learning rate and
+                                          # choice_lr is unused.
+    choice_temperature: float = 0.1       # [NEW] logit temperature on ln(Q_hub/Q_local):
+                                          # 0.1 -> hub paying 10% more is chosen with p ≈ 0.73
+    choice_payoff: str = "raw"            # [NEW] what the choice rule learns from: 'raw'
+                                          # (value / job duration) or 'per_skill' (raw / own
+                                          # efficiency w at completion; removes the drift of all
+                                          # payoffs with experience, so a rarely tried mode is
+                                          # not judged at an old, novice skill level)
+
+    hub_count_exponent: float = 0.0
+    """[NEW, E9] eta: number of hub lines per direction K = max(1, round((L/ell0)**eta)),
+    evenly spaced and including L//2 (see hubs.py). eta = 0 (default): ONE hub line, exactly
+    the original model (every earlier experiment). eta = 1: constant spacing ell0, a fully
+    polycentric system. A delivering agent delivers to the first hub line ahead of it."""
+    hub_spacing_ref: float = 16.0
+    """[NEW, E9] ell0: reference spacing (cells) of the hub lines; only used if eta > 0."""
+    learn_while_delivering: bool = True
+    """[NEW, E5] True (default, original model): an agent carrying a finished job to the hub
+    keeps gaining experience g + κn in its task while it travels. False: no experience gain
+    while delivering (it still decays). Tests whether p < 1 in the Γ collapse comes from
+    practice during delivery trips."""
 
     # ------------------------------------------------------------------ time
     T_burn: int = 6000
@@ -257,6 +302,26 @@ class Params:
             errs.append("coord_fixed_frac must be in [0,1)")
         if not 0.0 <= self.centralization <= 1.0:
             errs.append("centralization must be in [0,1]")
+        if self.choice_rule not in ("bush_mosteller", "logit"):
+            errs.append("choice_rule ∈ {bush_mosteller, logit}")
+        if not 0.0 <= self.choice_temperature <= 1.0:
+            errs.append("choice_temperature must be in [0,1]")
+        if self.choice_payoff not in ("raw", "per_skill"):
+            errs.append("choice_payoff ∈ {raw, per_skill}")
+        if self.delivery_choice not in ("fixed", "learned"):
+            errs.append("delivery_choice ∈ {fixed, learned}")
+        if self.hub_premium < 0:
+            errs.append("hub_premium must be >= 0")
+        if not 0.0 <= self.choice_p0 <= 1.0:
+            errs.append("choice_p0 must be in [0,1]")
+        if not 0.0 <= self.choice_explore < 0.5:
+            errs.append("choice_explore must be in [0,0.5)")
+        if not 0.0 <= self.hub_count_exponent <= 1.0:
+            errs.append("hub_count_exponent must be in [0,1]")
+        if self.hub_spacing_ref < 1.0:
+            errs.append("hub_spacing_ref must be >= 1")
+        if self.xi < 0 or self.phi < 0:
+            errs.append("xi and phi must be >= 0")
         if self.encounter not in ("stimulus", "uniform"):
             errs.append("encounter ∈ {stimulus, uniform}")
         if self.backend not in ("numpy", "cupy"):
